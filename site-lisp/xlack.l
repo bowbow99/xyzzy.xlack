@@ -145,6 +145,57 @@
   (apply '@log (concat "[ " fmt " ]") args)
   (apply 'message (concat "HTTP Server: " fmt) args))
 
+
+;;;;
+;;;; * Clack's RESPONSE
+
+(defun valid-response-p (response)
+  (and (listp response)
+       (= (list-length response) 3)
+       (destructuring-bind (status-code header body) response
+         (and (integerp status-code)
+              (and (proper-list-p header)
+                   (evenp (length header))
+                   (every #'keyword (mapcar #'first (group header 2))))
+              (or #-xyzzy
+                  (pathnamep body)
+                  (and (listp body)
+                       (every #'stringp body)))))))
+
+(defparameter *status/phrase-alist*
+  '((200 . "OK")))
+
+(defun find-reason-phrase (status-code)
+  (cdr (assoc status-code *status/phrase-alist*)))
+
+(defun send-response (connection response)
+  (unless (valid-response-p response)
+    (error "Invalid response: ~S" response))
+  (destructuring-bind (status-code header body) response
+    ;; Status Line
+    (@log "Sending status-line...")
+    (format connection "HTTP/1.1 ~S ~A~%"
+      status-code (find-reason-phrase status-code))
+    ;; Header
+    (@log "Sending header...")
+    (loop for (name value) on header by #'cddr
+      do (let ((lines (split-string value #\LFD t)))
+           (format connection "~A: ~A~%" name (first lines))
+           (dolist (line (rest lines))
+             (format connection "\t~A~%" line))))
+    (fresh-line connection)
+    (terpri connection)
+    ;; Body
+    (@log "Sending body...")
+    (cond
+     #-xyzzy
+     ((pathnamep body) (error "Sorry, there's no pathname..."))
+     ((and (listp body) (every #'stringp body))
+      (dolist (text body)
+        (format connection "~A~%" text))))))
+
+
+
 ;;;;
 ;;;; * HTTP Server
 
@@ -159,7 +210,10 @@
          (with-open-stream (conn (accept-connection server))
            (@msg "Accept connection")
            (@msg "Sending response...")
-           (format conn "HTTP/1.1 200 OK\n\nÇ©ÇﬂÅ[\n")
+           (send-response conn
+                          `(200
+                            (:content-type "text/plain")
+                            ("Ç©ÇﬂÅ[")))
            (@msg "Sending response...done."))))
      (@msg "Terminated"))))
 
