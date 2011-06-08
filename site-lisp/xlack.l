@@ -269,7 +269,14 @@
   (with-open-stream (connection (accept-connection socket))
     (@msg "Accept connection")
     (let* ((environment (make-clack-environment connection))
-           (response    (funcall app environment)))
+           (response    (handler-case
+                            (funcall app environment)
+                          (error (err)
+                            `(500
+                              nil
+                              ("Sorry, following error occured while handling your request.\n\n"
+                               ,(with-output-to-string (*standard-output*)
+                                  (format t "~A" err))))))))
       (@msg "Sending response...")
       (send-response connection response))))
 
