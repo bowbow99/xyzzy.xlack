@@ -188,31 +188,70 @@
       (values "" (subseq path-string 0 it) (subseq path-string (1+ it)))
       (values "" path-string ""))))
 
+(defun parse-request-message-header (connection)
+  "Read http header from connection and return them as alist."
+  (@log "parse-request-message-header: enter")
+  (let ((header nil) line)
+    (while (and (listen connection)
+                (setq line (read-line connection nil))
+                (not (string= line "")))
+      (@log "parsing header: ~S" line)
+      (aif (position #\: line)
+        (let ((field-name  (subseq line 0 it))
+              (field-value (string-trim "\t " (subseq line (1+ it)))))
+          (while (and (listen connection)
+                      (member (peek-char nil connection) '(#\SPC #\TAB)))
+            (let ((cont (read-line connection nil)))
+              (setf field-value (concat field-value " " (string-trim "\t " cont)))))
+          (setf header (acons (keyword (string-downcase field-name))
+                              field-value
+                              header)))
+        (error "Invalid header in request: ~S" line)))
+    (@log "parse-request-message-header: return")
+    (nreverse header)))
+
 (defun make-clack-environment (connection)
   (assert (open-stream-p connection))
   (multiple-value-bind (http-method request-uri http-version)
       (parse-request-line (read-line connection))
     (multiple-value-bind (script-name path-info query-string)
         (parse-request-uri request-uri)
-      ;; return
-      (list
-       :request-method http-method
-       :script-name    script-name
-       :path-info      path-info
-       :query-string   query-string
-       :server-name    (socket-stream-local-name connection)
-       :server-port    (socket-stream-local-port connection)
-       :server-protocol (keyword (format nil "HTTP/~D.~D"
-                                   (first http-version)
-                                   (second http-version)))
-       :request-uri    request-uri
-       :raw-body       connection
-       ;:http-user-agent
-       ;:http-referer
-       :remote-addr    (socket-stream-peer-address connection)
-       :remote-port    (socket-stream-peer-port connection)
-       :http-server    :xlack ; NOTE: ª...
-       ))))
+      (let ((header (parse-request-message-header connection)))
+        ;; return
+        (append
+         (list
+          :request-method http-method
+          :script-name    script-name
+          :path-info      path-info
+          :query-string   query-string
+          :server-name    (socket-stream-local-name connection)
+          :server-port    (socket-stream-local-port connection)
+          :server-protocol (keyword (format nil "HTTP/~D.~D"
+                                      (first http-version)
+                                      (second http-version)))
+          :request-uri    request-uri
+          ;; FIXME: As its nature, once someone read the contents of
+          ;; stream, no one can read it again. I think I should do
+          ;; something on this matter.
+          ;; NOTE: Official implementation seems doing something with
+          ;; "flexistream". I don't know what actually it does.
+          :raw-body       connection
+          ;:http-user-agent
+          ;:http-referer
+          :remote-addr    (socket-stream-peer-address connection)
+          :remote-port    (socket-stream-peer-port connection)
+          :http-server    :xlack ; NOTE: ª...
+          )
+         ;; NOTE: AFAIK, documentation doesn't specify what to do
+         ;; with header informations of request.
+         ;; Both official implementation of "handlers" for Apache and
+         ;; Hunchentoot include them directly in ENVIRONMENT plist
+         ;; with "HTTP-" prefix on each key.
+         (mapcan #'(lambda (name.value)
+                     (destructuring-bind (name . value) name.value
+                       (list (keyword (format nil "http-~(~A~)" name))
+                             value)))
+           header))))))
 
 ;;;;
 ;;;; * Clack's RESPONSE
