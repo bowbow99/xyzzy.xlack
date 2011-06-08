@@ -110,19 +110,28 @@
 #+xyzzy
 (setf (get 'defstruct 'ed:lisp-indent-hook) 1)
 
+
 ;;;;
 ;;;; * Logging/Monitering
 
 (defparameter *monitor-buffer-name* "*xlack server*")
 
+(defun make-monitor-stream ()
+  (let* ((buffer (or (find-buffer *monitor-buffer-name*)
+                     (let ((buffer (create-new-buffer *monitor-buffer-name*)))
+                       (setup-temp-buffer buffer)
+                       buffer)))
+         (stream (make-buffer-stream buffer (buffer-size buffer))))
+    (make-general-output-stream
+     (lambda (output)
+       (princ output stream)
+       (when (get-buffer-window buffer)
+         (refresh-screen))))))
+
 (defmacro with-output-to-monitor (&body body)
   "Evaluate BODY with redirecting output to *STANDARD-OUTPUT* to monitor buffer."
   `(with-open-stream (*standard-output*
-                      (make-buffer-stream
-                       (or (find-buffer *monitor-buffer-name*)
-                           (let ((buffer (create-new-buffer *monitor-buffer-name*)))
-                             (setup-temp-buffer buffer)
-                             buffer))))
+                      (make-monitor-stream))
      ,@body))
 #+xyzzy
 (setf (get 'with-output-to-monitor 'ed:lisp-indent-hook) 0)
