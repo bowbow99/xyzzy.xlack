@@ -62,6 +62,23 @@
 #+xyzzy
 (setf (get 'with-struct* 'ed:lisp-indent-hook) 2)
 
+(defmacro aif (test then &optional else)
+  `(let ((it ,test))
+     (if it ,then ,else)))
+
+(defmacro awhen (test &body body)
+  `(let ((it ,test))
+     (if it (progn ,@body))))
+
+(defmacro awhile (test &body body)
+  `(let (it)
+     (while (setq it ,test) ,@body)))
+#+xyzzy
+(setf (get 'aif #1='ed:lisp-indent-hook) 1
+      (get 'awhen #1#) 1
+      (get 'awhile #1#) 1)
+
+
 ;; modified version of http://paste.lisp.org/display/24480
 (defun proper-list-p (object)
   (if (null object) t
