@@ -262,31 +262,31 @@
       (dolist (text body)
         (format connection "~A~%" text))))))
 
+;;;;
+;;;; * Handle Request with Clack Application
+
+(defun handle-request (socket app)
+  (with-open-stream (connection (accept-connection socket))
+    (@msg "Accept connection")
+    (let* ((environment (make-clack-environment connection))
+           (response    (funcall app environment)))
+      (@msg "Sending response...")
+      (send-response connection response))))
 
 ;;;;
 ;;;; * HTTP Server
 
 ;;; NOTE: Just for prototyping purpose.
-(defun http-server ()
+(defun http-server (app)
   (with-output-to-monitor
     (with-open-stream (server (make-listen-socket nil 8333))
       (@msg "Started")
-      (loop
-        (sleep-for 0.01)
-        (when (listen server)
-          (with-open-stream (conn (accept-connection server))
-            (@msg "Accept connection")
-            (let ((env (make-clack-environment conn)))
-              (@msg "Sending response...")
-              (send-response conn
-                             `(200
-                               (:content-type "text/plain")
-                               (,(with-output-to-string (*standard-output*)
-                                   (format t "The ENVIRONMENT:~%")
-                                   (loop for (key value) on env by #'cddr
-                                     do (format t "  ~S~20T= ~S~%" key value))))))
-              (@msg "Sending response...done.")))))
-      (@msg "Terminated"))))
+      (unwind-protect
+          (loop
+            (sleep-for 0.01)
+            (when (listen server)
+              (handle-request server app)))
+        (@msg "Terminated")))))
 
 
 ;;; xlack.l ends here.
