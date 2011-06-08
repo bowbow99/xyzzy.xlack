@@ -164,6 +164,57 @@
 
 
 ;;;;
+;;;; * Clack ENVIRONMENT
+
+(defun parse-request-line (line)
+  (unless (string-matchp "\\([^ ]+\\) +\\([^ ]+\\) +HTTP/\\([0-9]+\\)\.\\([0-9]+\\)$"
+                         line)
+    (error "Invalid request-line: ~S" line))
+  (values
+   (let ((method-name (match-string 1)))
+     (keyword (string-upcase method-name)))
+   (match-string 2)
+   (list (parse-integer (match-string 3))
+         (parse-integer (match-string 4)))))
+
+(defun parse-request-uri (request-uri)
+  (let ((path-string (cond ((string-match "^/\\(?:$\\|[^/].*\\)" request-uri)
+                            request-uri)
+                           ((string-match "^https?://[^/]\\(/.*\\)$" request-uri)
+                            (match-string 1))
+                           (t
+                            (error "Unrecognizable Request URI: ~S" request-uri)))))
+    (aif (position #\? path-string)
+      (values "" (subseq path-string 0 it) (subseq path-string (1+ it)))
+      (values "" path-string ""))))
+
+(defun make-clack-environment (connection)
+  (assert (open-stream-p connection))
+  (multiple-value-bind (http-method request-uri http-version)
+      (parse-request-line (read-line connection))
+    (multiple-value-bind (script-name path-info query-string)
+        (parse-request-uri request-uri)
+      ;; return
+      (list
+       :request-method http-method
+       :script-name    script-name
+       :path-info      path-info
+       :query-string   query-string
+       :server-name    (socket-stream-local-name connection)
+       :server-port    (socket-stream-local-port connection)
+       :server-protocol (keyword (format nil "HTTP/~D.~D"
+                                   (first http-version)
+                                   (second http-version)))
+       :request-uri    request-uri
+       :raw-body       connection
+       ;:http-user-agent
+       ;:http-referer
+       :remote-addr    (socket-stream-peer-address connection)
+       :remote-port    (socket-stream-peer-port connection)
+       :http-server    :xlack ; NOTE: ™...
+       ))))
+
+;;;;
 ;;;; * Clack's RESPONSE
 
 (defun valid-response-p (response)
@@ -212,27 +263,30 @@
         (format connection "~A~%" text))))))
 
 
-
 ;;;;
 ;;;; * HTTP Server
 
 ;;; NOTE: Just for prototyping purpose.
 (defun http-server ()
   (with-output-to-monitor
-   (with-open-stream (server (make-listen-socket nil 8333))
-     (@msg "Started")
-     (loop
-       (sleep-for 0.01)
-       (when (listen server)
-         (with-open-stream (conn (accept-connection server))
-           (@msg "Accept connection")
-           (@msg "Sending response...")
-           (send-response conn
-                          `(200
-                            (:content-type "text/plain")
-                            ("Ç©ÇﬂÅ[")))
-           (@msg "Sending response...done."))))
-     (@msg "Terminated"))))
+    (with-open-stream (server (make-listen-socket nil 8333))
+      (@msg "Started")
+      (loop
+        (sleep-for 0.01)
+        (when (listen server)
+          (with-open-stream (conn (accept-connection server))
+            (@msg "Accept connection")
+            (let ((env (make-clack-environment conn)))
+              (@msg "Sending response...")
+              (send-response conn
+                             `(200
+                               (:content-type "text/plain")
+                               (,(with-output-to-string (*standard-output*)
+                                   (format t "The ENVIRONMENT:~%")
+                                   (loop for (key value) on env by #'cddr
+                                     do (format t "  ~S~20T= ~S~%" key value))))))
+              (@msg "Sending response...done.")))))
+      (@msg "Terminated"))))
 
 
 ;;; xlack.l ends here.
