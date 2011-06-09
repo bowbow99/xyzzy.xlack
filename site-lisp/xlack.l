@@ -290,7 +290,6 @@
            (format connection "~A: ~A~%" name (first lines))
            (dolist (line (rest lines))
              (format connection "\t~A~%" line))))
-    (fresh-line connection)
     (terpri connection)
     ;; Body
     (@log "Sending body...")
