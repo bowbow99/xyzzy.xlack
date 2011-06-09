@@ -15,6 +15,13 @@ NetInstaller から
 
   [カフェイン中毒]: http://bowbow99.sakura.ne.jp/xyzzy/packages.l
 
+依存するライブラリなど
+======================
+- [symbol-macrolet](http://github.com/bowbow99/xyzzy.symbol-macrolet)
+  - [setf-values](http://github.com/bowbow99/xyzzy.setf-values)
+- [condition-restart](http://github.com/bowbow99/xyzzy.condition-restart)
+- [destructuring-bind](http://github.com/bowbow99/xyzzy.destructuring-bind/tree/develop)
+
 設定
 ====
 今のところなし
