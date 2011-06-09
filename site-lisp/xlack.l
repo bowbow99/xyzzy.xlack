@@ -302,37 +302,74 @@
         (format connection "~A~%" text))))))
 
 ;;;;
-;;;; * Handle Request with Clack Application
-
-(defun handle-request (socket app)
-  (with-open-stream (connection (accept-connection socket))
-    (@msg "Accept connection")
-    (let* ((environment (make-clack-environment connection))
-           (response    (handler-case
-                            (funcall app environment)
-                          (error (err)
-                            `(500
-                              nil
-                              ("Sorry, following error occured while handling your request.\n\n"
-                               ,(with-output-to-string (*standard-output*)
-                                  (format t "~A" err))))))))
-      (@msg "Sending response...")
-      (send-response connection response))))
-
-;;;;
 ;;;; * HTTP Server
 
-;;; NOTE: Just for prototyping purpose.
-(defun http-server (app)
+(defstruct (server
+            (:print-function print-server))
+  socket
+  app
+  port
+  acceptor)
+
+(defun print-server (server stream &optional (n 0))
+  (declare (ignore n))
+  (with-struct* (server app socket port) server
+    (format stream "#<xlack:server ~S (~:[--~*~;~S~]) #x~@:(~X~)>"
+      app
+      (and (streamp socket) (open-stream-p socket))
+      port
+      (si:address-of server))))
+
+(defun create-server (app &optional (port 8333))
+  (make-server :app app :port 8333))
+
+(defun server-running-p (server)
+  (let ((socket (server-socket server)))
+    (and (streamp socket)
+         (open-stream-p socket)
+         ;; NOTE: Isn't there any way to check a function is running in background or not?
+         )))
+
+(defun make-acceptor (socket app)
+  (lambda ()
+    (with-output-to-monitor
+      (when (listen socket)
+        (with-open-stream (connection (accept-connection socket))
+          (@msg "Accept connection")
+          (let* ((env (make-clack-environment connection))
+                 (res (handler-case
+                          (funcall app env)
+                        (error (err)
+                          `(500
+                            (:content-type "text/plain")
+                            (,(with-output-to-string (*standard-output*)
+                                (princ "Sorry, following error occured while handling your request.\n\n  ")
+                                (princ err)
+                                (terpri))))))))
+            (@msg "Sending response...")
+            (send-response connection res)))))))
+
+(defun start-server (server)
   (with-output-to-monitor
-    (with-open-stream (server (make-listen-socket nil 8333))
-      (@msg "Started")
-      (unwind-protect
-          (loop
-            (sleep-for 0.01)
-            (when (listen server)
-              (handle-request server app)))
-        (@msg "Terminated")))))
+    (assert (not (server-running-p server)))
+    (with-struct* (server socket app port acceptor)
+        server
+      (setf socket (make-listen-socket nil port)
+            acceptor (make-acceptor socket app))
+      (@msg "Server ~S Started" server)
+      (start-timer 0.1 acceptor))))
+
+(defun stop-server (server)
+  (with-output-to-monitor
+    (when (server-running-p server)
+      (with-struct* (server socket acceptor) server
+        (close socket)
+        (assert (not (open-stream-p socket)))
+        (while (stop-timer acceptor))
+        (setf socket nil
+              acceptor nil)
+        (@msg "Server ~S Stopped" server)
+        t))))
 
 
 ;;; xlack.l ends here.
